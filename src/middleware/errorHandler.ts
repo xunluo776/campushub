@@ -1,7 +1,15 @@
 import { NextFunction, Request, Response } from 'express';
 
+import { ErrorResponse } from '../types/reservation';
+
+// Every failure the API returns uses the ErrorResponse shape from docs/openapi.yaml.
+export function sendError(res: Response, status: number, code: string, message: string): void {
+  const payload: ErrorResponse = { code, message };
+  res.status(status).json(payload);
+}
+
 export function notFoundHandler(req: Request, res: Response): void {
-  res.status(404).json({ status: 'error', message: `Route not found: ${req.originalUrl}` });
+  sendError(res, 404, 'NOT_FOUND', `Route not found: ${req.originalUrl}`);
 }
 
 // Central error handler. Registered last in app.ts so everything funnels here.
@@ -21,5 +29,5 @@ export function errorHandler(
     next(error);
     return;
   }
-  res.status(500).json({ status: 'error', message });
+  sendError(res, 500, 'INTERNAL_ERROR', message);
 }
