@@ -50,8 +50,13 @@ src/
 ├── services/         Pure business logic
 ├── models/           Mongoose schemas and interface definitions only
 ├── middleware/       Cross-cutting Express middleware (errors, auth, tenant scoping)
+├── scripts/          Dev-only scripts (e.g. seed), never imported by the app
 └── types/            Shared interfaces and type declarations
 ```
+
+- Services report failures by throwing the error classes in `services/errors.ts`
+  (`ValidationError`, `DoubleBookingError`). Controllers map those to 400 / 409; anything
+  else goes to `next(err)` and becomes a 500.
 
 - **Routes** map a path and HTTP method to a controller function, and attach middleware.
   No business logic, no database calls, no inline handler bodies. A route file should be

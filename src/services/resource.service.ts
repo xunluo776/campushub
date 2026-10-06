@@ -1,49 +1,43 @@
-import { Resource } from '../types/reservation';
+import { ResourceDocument, ResourceModel } from '../models/Resource.model';
+import { Resource, ResourceType } from '../types/reservation';
+import { ValidationError } from './errors';
 
-// In-memory seed data so the contract endpoints are callable without a running MongoDB.
-// The Mongoose model in src/models/resource.model.ts is the real storage schema.
-const resources: Resource[] = [
-  {
-    id: 'res-101',
-    name: 'Study Room 302',
-    type: 'ROOM',
-    location: 'Snell Library, Floor 3',
-    isAvailable: true,
-  },
-  {
-    id: 'res-102',
-    name: 'Study Room 415',
-    type: 'ROOM',
-    location: 'Snell Library, Floor 4',
-    isAvailable: false,
-  },
-  {
-    id: 'res-201',
-    name: '3D Printer A',
-    type: 'EQUIPMENT',
-    location: 'Richards Hall, Makerspace',
-    isAvailable: true,
-  },
-  {
-    id: 'res-301',
-    name: 'Robotics Lab 1',
-    type: 'LAB',
-    location: 'ISEC, Room 142',
-    isAvailable: true,
-  },
-];
+const RESOURCE_TYPES: ResourceType[] = ['ROOM', 'EQUIPMENT', 'LAB'];
 
-// Business logic only. An unknown type is not an error here, it just matches nothing.
-export async function listResources(type?: string): Promise<Resource[]> {
+// Turns a Mongoose document into the Resource shape from the contract.
+function toResource(doc: ResourceDocument): Resource {
+  return {
+    id: doc._id.toString(),
+    name: doc.name,
+    type: doc.type,
+    location: doc.location,
+    isAvailable: doc.isAvailable,
+  };
+}
+
+// type comes straight from the query string, so it can be anything until we check it.
+// An unknown type is not an error, it just matches nothing.
+export async function listResources(type: unknown): Promise<Resource[]> {
+  let docs: ResourceDocument[];
+
   if (type === undefined) {
-    return resources;
+    docs = await ResourceModel.find().sort({ name: 1 });
+  } else {
+    if (typeof type !== 'string' || type.trim() === '') {
+      throw new ValidationError(
+        'VALIDATION_ERROR',
+        'type must be a non-empty string when provided.',
+      );
+    }
+    if (!RESOURCE_TYPES.includes(type as ResourceType)) {
+      return [];
+    }
+    docs = await ResourceModel.find({ type: type as ResourceType }).sort({ name: 1 });
   }
 
-  const matches: Resource[] = [];
-  for (const resource of resources) {
-    if (resource.type === type) {
-      matches.push(resource);
-    }
+  const resources: Resource[] = [];
+  for (const doc of docs) {
+    resources.push(toResource(doc));
   }
-  return matches;
+  return resources;
 }

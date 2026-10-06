@@ -1,15 +1,17 @@
-import { Schema, model } from 'mongoose';
+import { HydratedDocument, Schema, model } from 'mongoose';
 
 import { UserRole } from '../types/reservation';
 
 // Mongoose side of the User schema in docs/openapi.yaml.
-export interface UserDocument {
+export interface IUser {
   name: string;
   email: string;
   role: UserRole;
 }
 
-const userSchema = new Schema<UserDocument>(
+export type UserDocument = HydratedDocument<IUser>;
+
+const userSchema = new Schema<IUser>(
   {
     name: { type: String, required: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, trim: true },
@@ -18,4 +20,4 @@ const userSchema = new Schema<UserDocument>(
   { timestamps: true },
 );
 
-export const UserModel = model<UserDocument>('User', userSchema);
+export const UserModel = model<IUser>('User', userSchema);

@@ -19,6 +19,18 @@ export function errorHandler(
   res: Response,
   next: NextFunction,
 ): void {
+  // express.json() throws this when the body isn't valid JSON. That's the client's
+  // fault, so it's a 400 like any other bad body, not a 500.
+  if (
+    !res.headersSent &&
+    error instanceof SyntaxError &&
+    'type' in error &&
+    error.type === 'entity.parse.failed'
+  ) {
+    sendError(res, 400, 'VALIDATION_ERROR', 'Request body must be valid JSON.');
+    return;
+  }
+
   let message = 'Internal server error';
   if (error instanceof Error) {
     message = error.message;
