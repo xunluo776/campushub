@@ -8,7 +8,7 @@ import { Resource } from '../types/reservation';
 // GET /api/v1/resources
 export async function getResources(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const resources: Resource[] = await listResources(req.query.type);
+    const resources: Resource[] = await listResources(req.query.type, req.query.isAvailable);
     res.status(200).json(resources);
   } catch (error) {
     if (error instanceof ValidationError) {

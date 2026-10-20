@@ -3,12 +3,20 @@ import { isObjectIdOrHexString } from 'mongoose';
 import { ReservationDocument, ReservationModel } from '../models/Reservation.model';
 import { ResourceModel } from '../models/Resource.model';
 import { CreateReservationInput, Reservation, ReservationStatus } from '../types/reservation';
-import { DoubleBookingError, ValidationError } from './errors';
+import {
+  DoubleBookingError,
+  NotFoundError,
+  StatusTransitionError,
+  ValidationError,
+} from './errors';
 
 // ISO 8601 date-time, which is what format: date-time means in the contract.
 const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 
 const ALLOWED_STATUSES: ReservationStatus[] = ['PENDING', 'CONFIRMED', 'CANCELLED'];
+
+// Statuses that still hold the time slot.
+const ACTIVE_STATUSES: ReservationStatus[] = ['PENDING', 'CONFIRMED'];
 
 function readString(payload: Record<string, unknown>, field: string): string | undefined {
   const value = payload[field];
@@ -109,11 +117,12 @@ export async function createReservation(body: unknown): Promise<Reservation> {
   const start = new Date(input.startTime);
   const end = new Date(input.endTime);
 
-  // Two slots overlap when each one starts before the other ends. Back to back bookings
-  // (one ends exactly when the next starts) are allowed. Cancelled ones don't count.
+  // Two slots overlap when the existing one starts before the new end AND ends after the
+  // new start. Back to back bookings (one ends exactly when the next starts) are allowed.
+  // Only PENDING and CONFIRMED hold the slot, a CANCELLED one frees it.
   const conflict = await ReservationModel.exists({
     resourceId: input.resourceId,
-    status: { $ne: 'CANCELLED' },
+    status: { $in: ACTIVE_STATUSES },
     startTime: { $lt: end },
     endTime: { $gt: start },
   });
@@ -136,19 +145,61 @@ export async function createReservation(body: unknown): Promise<Reservation> {
   return toReservation(doc);
 }
 
-// Active means everything the student still holds, so cancelled bookings are left out.
-export async function listActiveReservationsForUser(userId: unknown): Promise<Reservation[]> {
+// Every booking the student has made, cancelled ones included, so they can see the
+// status of each one.
+export async function listReservationsForUser(userId: unknown): Promise<Reservation[]> {
   if (typeof userId !== 'string' || userId.trim() === '') {
     throw new ValidationError('VALIDATION_ERROR', 'userId must be a non-empty string.');
   }
 
-  const docs = await ReservationModel.find({ userId: userId, status: { $ne: 'CANCELLED' } }).sort({
-    startTime: 1,
-  });
+  const docs = await ReservationModel.find({ userId: userId }).sort({ startTime: 1 });
 
-  const active: Reservation[] = [];
+  const reservations: Reservation[] = [];
   for (const doc of docs) {
-    active.push(toReservation(doc));
+    reservations.push(toReservation(doc));
   }
-  return active;
+  return reservations;
+}
+
+// Moves a reservation to a new status, but only if its current status is one of `from`.
+// The status check is part of the update query, so two requests racing each other can't
+// both win (e.g. confirm and cancel at the same time).
+async function changeStatus(
+  id: unknown,
+  from: ReservationStatus[],
+  to: ReservationStatus,
+): Promise<Reservation> {
+  if (typeof id !== 'string' || !isObjectIdOrHexString(id)) {
+    throw new ValidationError('VALIDATION_ERROR', 'id must be a valid reservation id.');
+  }
+
+  const updated = await ReservationModel.findOneAndUpdate(
+    { _id: id, status: { $in: from } },
+    { status: to },
+    { returnDocument: 'after' },
+  );
+  if (updated !== null) {
+    return toReservation(updated);
+  }
+
+  // Nothing matched, so either the id doesn't exist or the status was wrong.
+  const existing = await ReservationModel.findById(id);
+  if (existing === null) {
+    throw new NotFoundError('RESERVATION_NOT_FOUND', 'No reservation exists with this id.');
+  }
+  throw new StatusTransitionError(
+    `Reservation is ${existing.status} and cannot be changed to ${to}.`,
+  );
+}
+
+// PENDING or CONFIRMED -> CANCELLED. Once cancelled, the slot no longer counts in the
+// conflict check above, so someone else can book it right away.
+export async function cancelReservation(id: unknown): Promise<Reservation> {
+  return changeStatus(id, ACTIVE_STATUSES, 'CANCELLED');
+}
+
+// PENDING -> CONFIRMED. A pending booking already holds the slot, so there's no need to
+// run the conflict check again here.
+export async function confirmReservation(id: unknown): Promise<Reservation> {
+  return changeStatus(id, ['PENDING'], 'CONFIRMED');
 }
