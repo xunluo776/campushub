@@ -11,6 +11,8 @@ to a tenant (a campus/organization), so tenant scoping is part of the data model
 must never be assumed to be global.
 
 Runtime: Node.js + TypeScript. Web layer: Express. Database: MongoDB via Mongoose.
+Frontend: React + TypeScript + Vite in `client/`, see section 6. Sections 1-3 are about the
+backend in `src/`.
 
 ## 1. Tech Stack & Libraries
 
@@ -110,3 +112,46 @@ Import direction is one way: routes → controllers → services → models. Nev
 - Keep changes scoped to what was asked. Do not refactor unrelated files or add features
   that were not requested.
 - Prefer plain, readable code over clever code.
+
+## 6. Frontend (client/)
+
+The React client lives in `client/` and has its own `package.json`. It talks to the
+backend only through the contract in `docs/openapi.yaml`.
+
+Authorized client dependencies: `react`, `react-dom`, `axios`, `tailwindcss` and
+`@tailwindcss/vite`, plus the dev tooling the Vite react-ts template ships with. Same rule
+as the backend: no new package without asking first.
+
+```
+client/src/
+├── main.tsx          Mounts <App />
+├── App.tsx           Page layout and state shared between components
+├── index.css         Tailwind import only
+├── api/
+│   └── campushubApi.ts   Typed API layer, the only file that makes HTTP calls
+└── components/       One component per file
+```
+
+- **Component architecture:** functional components only, no class components. Every
+  component has an explicit `Props` interface and an explicit `JSX.Element` return type.
+- **State management:** standard React hooks (`useState`, `useEffect`). Data loading
+  happens in a `useEffect` or an event handler that calls a function from
+  `api/campushubApi.ts`. No inline API calls inside JSX, and no `axios`/`fetch` calls
+  outside the API file.
+- **API contract:** the types in `campushubApi.ts` mirror the schemas in
+  `docs/openapi.yaml` field for field. If the contract changes, update the types first and
+  let the compiler show what broke. Requests use the relative `/api/v1` base URL, the Vite
+  dev server proxies it to the backend (`API_PROXY_TARGET`, see `client/.env-example`).
+- **Async state:** every async workflow has explicit `isLoading` and `error` state. Loading
+  always ends in `finally` so a spinner can't hang. Errors go through `getErrorMessage()`
+  and show in `ErrorBanner`. A 409 `DOUBLE_BOOKING` shows "This resource is already
+  reserved for the selected time window." Never swallow an error or only `console.log` it.
+- **Validation:** forms validate input before sending a request (required fields, end
+  after start, no past start). The server still validates everything, the client checks
+  are only for quick feedback.
+- **Times:** `datetime-local` values have no timezone. Convert them with
+  `new Date(value).toISOString()` before sending.
+- **Styling:** Tailwind utility classes only, kept consistent across components (same
+  card, button and banner styles). No inline `style` objects and no per-component CSS
+  files.
+- TypeScript runs in `strict` mode in the client too, and `any` is banned.
