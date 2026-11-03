@@ -1,5 +1,6 @@
-// TypeScript mirror of the schemas in docs/openapi.yaml. The contract is the source of
-// truth, so field names and optionality here have to match it exactly.
+// Shared TypeScript mirror of the schemas in docs/openapi.yaml. Both the backend (src/) and
+// the React client (client/) import from this one file, so the two sides can't drift
+// apart. Types only: no runtime code, so it costs nothing in either build.
 
 export type ResourceType = 'ROOM' | 'EQUIPMENT' | 'LAB';
 
@@ -31,9 +32,9 @@ export interface Reservation {
   status: ReservationStatus;
 }
 
-// What a client is allowed to send to POST /reservations. id is server generated and
-// status defaults to PENDING, which is why both are left out here.
-export interface CreateReservationInput {
+// Body for POST /reservations. id is server generated and status defaults to PENDING,
+// which is why both are left out. startTime/endTime are ISO 8601 strings.
+export interface CreateReservationDTO {
   resourceId: string;
   userId: string;
   startTime: string;
@@ -41,6 +42,7 @@ export interface CreateReservationInput {
   status?: ReservationStatus;
 }
 
+// Every failing endpoint returns this shape.
 export interface ErrorResponse {
   code: string;
   message: string;

@@ -1,6 +1,6 @@
 import { HydratedDocument, Schema, Types, model } from 'mongoose';
 
-import { ReservationStatus } from '../types/reservation';
+import { ReservationStatus } from '../../shared/types';
 
 // Mongoose side of the Reservation schema in docs/openapi.yaml.
 // userId stays a plain string for now because there is no user/auth module yet and the

@@ -1,0 +1,30 @@
+# Agent ignore file. AI agents must not read, search or edit anything matched here
+# (CLAUDE.md tells the agent to follow this file). Same syntax as .gitignore, and
+# patterns without a leading slash match at any depth, so they cover client/ too.
+# Keeps the context window on real source code: src/, shared/, client/src/.
+
+# Dependencies
+node_modules/
+
+# Build output and generated artifacts (compiled API build, Vite bundle, coverage)
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Generated bundle / source maps
+*.map
+
+# Dependency lockfiles (huge and auto-generated)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Logs, including old ones from earlier runs
+logs/
+*.log
+npm-debug.log*
+
+# Local secrets
+.env
+.env.local

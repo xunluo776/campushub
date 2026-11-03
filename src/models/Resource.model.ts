@@ -1,6 +1,6 @@
 import { HydratedDocument, Schema, model } from 'mongoose';
 
-import { ResourceType } from '../types/reservation';
+import { ResourceType } from '../../shared/types';
 
 // Mongoose side of the Resource schema in docs/openapi.yaml. Field names and required
 // flags have to match the contract.

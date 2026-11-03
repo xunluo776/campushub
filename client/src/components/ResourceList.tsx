@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
 import type { JSX } from 'react';
 
-import { fetchResources, getErrorMessage } from '../api/campushubApi';
-import type { Resource, ResourceType } from '../api/campushubApi';
+import type { Resource } from '../api/campushubApi';
+import { useResources } from '../hooks/useResources';
+import type { ResourceFilter } from '../hooks/useResources';
 import ErrorBanner from './ErrorBanner';
+import ResourceCard from './ResourceCard';
 
 interface ResourceListProps {
   selectedResourceId: string | null;
@@ -12,7 +13,7 @@ interface ResourceListProps {
 
 interface FilterOption {
   label: string;
-  value: ResourceType | '';
+  value: ResourceFilter;
 }
 
 const FILTERS: FilterOption[] = [
@@ -22,61 +23,8 @@ const FILTERS: FilterOption[] = [
   { label: 'Labs', value: 'LAB' },
 ];
 
-const TYPE_LABELS: Record<ResourceType, string> = {
-  ROOM: 'Study Room',
-  EQUIPMENT: 'Equipment',
-  LAB: 'Lab',
-};
-
 function ResourceList({ selectedResourceId, onSelect }: ResourceListProps): JSX.Element {
-  const [typeFilter, setTypeFilter] = useState<ResourceType | ''>('');
-  const [resources, setResources] = useState<Resource[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-  // Bumping this reruns the effect, used by the retry button.
-  const [reloadCount, setReloadCount] = useState<number>(0);
-
-  useEffect(() => {
-    // Ignore the answer if the filter changed again before it came back.
-    let ignore = false;
-
-    async function load(): Promise<void> {
-      try {
-        const data = await fetchResources(typeFilter);
-        if (!ignore) {
-          setResources(data);
-          setError(null);
-        }
-      } catch (err) {
-        if (!ignore) {
-          setError(getErrorMessage(err));
-        }
-      } finally {
-        if (!ignore) {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    load();
-    return () => {
-      ignore = true;
-    };
-  }, [typeFilter, reloadCount]);
-
-  function handleFilterChange(value: ResourceType | ''): void {
-    if (value === typeFilter) {
-      return;
-    }
-    setIsLoading(true);
-    setTypeFilter(value);
-  }
-
-  function handleRetry(): void {
-    setIsLoading(true);
-    setError(null);
-    setReloadCount((count) => count + 1);
-  }
+  const { resources, typeFilter, setTypeFilter, isLoading, error, reload } = useResources();
 
   return (
     <section className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
@@ -87,7 +35,7 @@ function ResourceList({ selectedResourceId, onSelect }: ResourceListProps): JSX.
             <button
               key={filter.label}
               type="button"
-              onClick={() => handleFilterChange(filter.value)}
+              onClick={() => setTypeFilter(filter.value)}
               className={
                 filter.value === typeFilter
                   ? 'rounded-full bg-blue-600 px-3 py-1 text-sm font-medium text-white'
@@ -102,7 +50,7 @@ function ResourceList({ selectedResourceId, onSelect }: ResourceListProps): JSX.
 
       {isLoading && <p className="text-sm text-gray-500">Loading resources...</p>}
 
-      {!isLoading && error !== null && <ErrorBanner message={error} onRetry={handleRetry} />}
+      {!isLoading && error !== null && <ErrorBanner message={error} onRetry={reload} />}
 
       {!isLoading && error === null && resources.length === 0 && (
         <p className="text-sm text-gray-500">No resources match this filter.</p>
@@ -111,37 +59,12 @@ function ResourceList({ selectedResourceId, onSelect }: ResourceListProps): JSX.
       {!isLoading && error === null && resources.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2">
           {resources.map((resource) => (
-            <div
+            <ResourceCard
               key={resource.id}
-              className={
-                resource.id === selectedResourceId
-                  ? 'rounded-lg border-2 border-blue-500 p-4'
-                  : 'rounded-lg border border-gray-200 p-4'
-              }
-            >
-              <div className="mb-1 flex items-center justify-between gap-2">
-                <h3 className="font-medium text-gray-900">{resource.name}</h3>
-                <span className="rounded bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
-                  {TYPE_LABELS[resource.type]}
-                </span>
-              </div>
-              <p className="mb-3 text-sm text-gray-600">{resource.location}</p>
-              <div className="flex items-center justify-between">
-                {resource.isAvailable ? (
-                  <span className="text-xs font-medium text-green-700">Available</span>
-                ) : (
-                  <span className="text-xs font-medium text-gray-500">Not available</span>
-                )}
-                <button
-                  type="button"
-                  disabled={!resource.isAvailable}
-                  onClick={() => onSelect(resource)}
-                  className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
-                >
-                  {resource.id === selectedResourceId ? 'Selected' : 'Book'}
-                </button>
-              </div>
-            </div>
+              resource={resource}
+              isSelected={resource.id === selectedResourceId}
+              onSelect={onSelect}
+            />
           ))}
         </div>
       )}

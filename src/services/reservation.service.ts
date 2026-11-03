@@ -2,7 +2,7 @@ import { isObjectIdOrHexString } from 'mongoose';
 
 import { ReservationDocument, ReservationModel } from '../models/Reservation.model';
 import { ResourceModel } from '../models/Resource.model';
-import { CreateReservationInput, Reservation, ReservationStatus } from '../types/reservation';
+import { CreateReservationDTO, Reservation, ReservationStatus } from '../../shared/types';
 import {
   DoubleBookingError,
   NotFoundError,
@@ -35,7 +35,7 @@ function isIsoDateTime(value: string): boolean {
 
 // Checks the raw request body against the contract and returns a typed input.
 // Throws ValidationError on the first problem it finds.
-function parseReservationInput(body: unknown): CreateReservationInput {
+function parseReservationInput(body: unknown): CreateReservationDTO {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
     throw new ValidationError('VALIDATION_ERROR', 'Request body must be a JSON object.');
   }

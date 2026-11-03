@@ -1,6 +1,6 @@
 import { HydratedDocument, Schema, model } from 'mongoose';
 
-import { UserRole } from '../types/reservation';
+import { UserRole } from '../../shared/types';
 
 // Mongoose side of the User schema in docs/openapi.yaml.
 export interface IUser {

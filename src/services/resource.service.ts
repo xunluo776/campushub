@@ -1,5 +1,5 @@
 import { ResourceDocument, ResourceModel } from '../models/Resource.model';
-import { Resource, ResourceType } from '../types/reservation';
+import { Resource, ResourceType } from '../../shared/types';
 import { ValidationError } from './errors';
 
 const RESOURCE_TYPES: ResourceType[] = ['ROOM', 'EQUIPMENT', 'LAB'];

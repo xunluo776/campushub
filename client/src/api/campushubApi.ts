@@ -1,44 +1,22 @@
 import axios from 'axios';
 
-// Types copied from the schemas in docs/openapi.yaml. The contract is the source of truth,
-// so field names and optional fields here have to match it.
+import type {
+  CreateReservationDTO,
+  ErrorResponse,
+  Reservation,
+  Resource,
+} from '../../../shared/types';
 
-export type ResourceType = 'ROOM' | 'EQUIPMENT' | 'LAB';
-
-export type ReservationStatus = 'PENDING' | 'CONFIRMED' | 'CANCELLED';
-
-export interface Resource {
-  id: string;
-  name: string;
-  type: ResourceType;
-  location: string;
-  isAvailable: boolean;
-}
-
-export interface Reservation {
-  id: string;
-  resourceId: string;
-  userId: string;
-  startTime: string;
-  endTime: string;
-  status: ReservationStatus;
-}
-
-// Body for POST /reservations. startTime and endTime are ISO 8601 strings, and status is
-// left out because the server defaults it to PENDING.
-export interface CreateReservationDTO {
-  resourceId: string;
-  userId: string;
-  startTime: string;
-  endTime: string;
-  status?: ReservationStatus;
-}
-
-// Every failing endpoint returns this shape.
-export interface ErrorResponse {
-  code: string;
-  message: string;
-}
+// The models live in shared/types.ts so the client and the backend use the same ones.
+// Re-exported here so components only ever import from the API layer.
+export type {
+  CreateReservationDTO,
+  ErrorResponse,
+  Reservation,
+  ReservationStatus,
+  Resource,
+  ResourceType,
+} from '../../../shared/types';
 
 export const CONFLICT_MESSAGE = 'This resource is already reserved for the selected time window.';
 

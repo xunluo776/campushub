@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import type { FormEvent, JSX } from 'react';
 
-import { createReservation, getErrorMessage } from '../api/campushubApi';
 import type { Resource } from '../api/campushubApi';
+import { useCreateReservation } from '../hooks/useReservations';
+import DateTimeField from './DateTimeField';
 import ErrorBanner from './ErrorBanner';
 
 interface BookingFormProps {
@@ -34,9 +35,9 @@ function validateTimes(startTime: string, endTime: string): string | null {
 function BookingForm({ resource, userId, onBooked }: BookingFormProps): JSX.Element {
   const [startTime, setStartTime] = useState<string>('');
   const [endTime, setEndTime] = useState<string>('');
-  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const { createBooking, isSubmitting, error: submitError, clearError } = useCreateReservation();
 
   if (resource === null) {
     return (
@@ -49,36 +50,37 @@ function BookingForm({ resource, userId, onBooked }: BookingFormProps): JSX.Elem
 
   // Keep a non-null copy so the async submit below doesn't have to re-check it.
   const selected: Resource = resource;
+  const shownError = validationError ?? submitError;
+
+  function handleTimeChange(setter: (value: string) => void, value: string): void {
+    setter(value);
+    setValidationError(null);
+    clearError();
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     setSuccessMessage(null);
 
-    const validationError = validateTimes(startTime, endTime);
-    if (validationError !== null) {
-      setError(validationError);
+    const problem = validateTimes(startTime, endTime);
+    setValidationError(problem);
+    if (problem !== null) {
       return;
     }
 
-    setError(null);
-    setIsSubmitting(true);
-    try {
-      // datetime-local has no timezone, new Date() reads it as local time and
-      // toISOString() turns it into the UTC ISO 8601 string the API expects.
-      await createReservation({
-        resourceId: selected.id,
-        userId: userId,
-        startTime: new Date(startTime).toISOString(),
-        endTime: new Date(endTime).toISOString(),
-      });
+    // datetime-local has no timezone, new Date() reads it as local time and
+    // toISOString() turns it into the UTC ISO 8601 string the API expects.
+    const booked = await createBooking({
+      resourceId: selected.id,
+      userId: userId,
+      startTime: new Date(startTime).toISOString(),
+      endTime: new Date(endTime).toISOString(),
+    });
+    if (booked) {
       setSuccessMessage(`Booked ${selected.name}. It now shows under My Bookings.`);
       setStartTime('');
       setEndTime('');
       onBooked();
-    } catch (err) {
-      setError(getErrorMessage(err));
-    } finally {
-      setIsSubmitting(false);
     }
   }
 
@@ -90,39 +92,20 @@ function BookingForm({ resource, userId, onBooked }: BookingFormProps): JSX.Elem
       </p>
 
       <form onSubmit={handleSubmit} noValidate className="space-y-4">
-        <div>
-          <label htmlFor="startTime" className="mb-1 block text-sm font-medium text-gray-700">
-            Start time
-          </label>
-          <input
-            id="startTime"
-            type="datetime-local"
-            value={startTime}
-            onChange={(e) => {
-              setStartTime(e.target.value);
-              setError(null);
-            }}
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-          />
-        </div>
+        <DateTimeField
+          id="startTime"
+          label="Start time"
+          value={startTime}
+          onChange={(value) => handleTimeChange(setStartTime, value)}
+        />
+        <DateTimeField
+          id="endTime"
+          label="End time"
+          value={endTime}
+          onChange={(value) => handleTimeChange(setEndTime, value)}
+        />
 
-        <div>
-          <label htmlFor="endTime" className="mb-1 block text-sm font-medium text-gray-700">
-            End time
-          </label>
-          <input
-            id="endTime"
-            type="datetime-local"
-            value={endTime}
-            onChange={(e) => {
-              setEndTime(e.target.value);
-              setError(null);
-            }}
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-          />
-        </div>
-
-        {error !== null && <ErrorBanner message={error} />}
+        {shownError !== null && <ErrorBanner message={shownError} />}
 
         {successMessage !== null && (
           <div
