@@ -1,0 +1,6 @@
+{
+  // What `npm run build` compiles: same settings, minus tests and test helpers so they
+  // never end up in dist/. tsconfig.json still includes them for typecheck and ts-jest.
+  "extends": "./tsconfig.json",
+  "exclude": ["node_modules", "dist", "client", "src/**/__tests__/**", "src/test/**"]
+}

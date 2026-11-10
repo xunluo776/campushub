@@ -10,8 +10,10 @@ import {
   ValidationError,
 } from './errors';
 
-// ISO 8601 date-time, which is what format: date-time means in the contract.
-const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
+// ISO 8601 date-time, which is what format: date-time means in the contract. The groups
+// are year, month, day, hour, minute, second, fraction, then the offset sign/hours/minutes.
+const ISO_DATE_TIME =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d+)?(Z|([+-])(\d{2}):(\d{2}))$/;
 
 const ALLOWED_STATUSES: ReservationStatus[] = ['PENDING', 'CONFIRMED', 'CANCELLED'];
 
@@ -27,10 +29,67 @@ function readString(payload: Record<string, unknown>, field: string): string | u
 }
 
 function isIsoDateTime(value: string): boolean {
-  if (!ISO_DATE_TIME.test(value)) {
+  const match = ISO_DATE_TIME.exec(value);
+  if (match === null) {
     return false;
   }
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+
+  // Date.parse doesn't reject impossible values, it rolls them forward (Feb 30 becomes
+  // Mar 2, 24:00 becomes the next day), so each field has to be range checked here.
+  if (month < 1 || month > 12) {
+    return false;
+  }
+  // Day 0 of the next month is the last day of this one, so this handles leap years.
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  if (day < 1 || day > daysInMonth) {
+    return false;
+  }
+  if (hour > 23 || minute > 59 || second > 59) {
+    return false;
+  }
+  if (match[9] !== undefined) {
+    const offsetHours = Number(match[10]);
+    const offsetMinutes = Number(match[11]);
+    if (offsetHours > 23 || offsetMinutes > 59) {
+      return false;
+    }
+  }
   return !Number.isNaN(Date.parse(value));
+}
+
+// Booking requests for the same resource wait in line, one at a time, so the conflict
+// check and the insert below can't interleave with another request's (that let two
+// overlapping bookings both succeed). Different resources still run in parallel.
+// This only protects one server process, which is all CampusHub runs.
+const resourceLocks = new Map<string, Promise<void>>();
+
+async function withResourceLock<T>(resourceId: string, task: () => Promise<T>): Promise<T> {
+  // Hex ids are case-insensitive, so normalize or "AB..." and "ab..." get separate locks.
+  const key = resourceId.toLowerCase();
+  const previous = resourceLocks.get(key) ?? Promise.resolve();
+
+  let release: () => void = () => {};
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  resourceLocks.set(key, current);
+
+  await previous;
+  try {
+    return await task();
+  } finally {
+    release();
+    // Nobody queued up behind us, so drop the entry instead of keeping it forever.
+    if (resourceLocks.get(key) === current) {
+      resourceLocks.delete(key);
+    }
+  }
 }
 
 // Checks the raw request body against the contract and returns a typed input.
@@ -117,32 +176,36 @@ export async function createReservation(body: unknown): Promise<Reservation> {
   const start = new Date(input.startTime);
   const end = new Date(input.endTime);
 
-  // Two slots overlap when the existing one starts before the new end AND ends after the
-  // new start. Back to back bookings (one ends exactly when the next starts) are allowed.
-  // Only PENDING and CONFIRMED hold the slot, a CANCELLED one frees it.
-  const conflict = await ReservationModel.exists({
-    resourceId: input.resourceId,
-    status: { $in: ACTIVE_STATUSES },
-    startTime: { $lt: end },
-    endTime: { $gt: start },
-  });
-  if (conflict !== null) {
-    throw new DoubleBookingError('Resource is already reserved for this time slot.');
-  }
-
   let status = input.status;
   if (status === undefined) {
     status = 'PENDING';
   }
+  const newStatus: ReservationStatus = status;
 
-  const doc = await ReservationModel.create({
-    resourceId: input.resourceId,
-    userId: input.userId,
-    startTime: start,
-    endTime: end,
-    status: status,
+  // Check and insert as one step per resource, see withResourceLock above.
+  return withResourceLock(input.resourceId, async () => {
+    // Two slots overlap when the existing one starts before the new end AND ends after
+    // the new start. Back to back bookings (one ends exactly when the next starts) are
+    // allowed. Only PENDING and CONFIRMED hold the slot, a CANCELLED one frees it.
+    const conflict = await ReservationModel.exists({
+      resourceId: input.resourceId,
+      status: { $in: ACTIVE_STATUSES },
+      startTime: { $lt: end },
+      endTime: { $gt: start },
+    });
+    if (conflict !== null) {
+      throw new DoubleBookingError('Resource is already reserved for this time slot.');
+    }
+
+    const doc = await ReservationModel.create({
+      resourceId: input.resourceId,
+      userId: input.userId,
+      startTime: start,
+      endTime: end,
+      status: newStatus,
+    });
+    return toReservation(doc);
   });
-  return toReservation(doc);
 }
 
 // Every booking the student has made, cancelled ones included, so they can see the

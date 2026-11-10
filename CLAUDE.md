@@ -74,14 +74,30 @@ else. If the contract changes, update `docs/openapi.yaml` and `shared/types.ts` 
   Use real types or `unknown` plus a check.
 - Exported functions, hooks and components have explicit return types.
 - Dependencies: only what's already in the two `package.json` files (backend: express,
-  mongoose, dotenv; client: react, axios, tailwindcss). Ask before adding anything. Keep
-  backend TypeScript on `^5.9`, since `ts-node` can't load 7.x.
+  mongoose, dotenv; backend dev/test: jest, ts-jest, supertest, mongodb-memory-server;
+  client: react, axios, tailwindcss). Ask before adding anything. Keep backend
+  TypeScript on `^5.9`, since `ts-node` can't load 7.x.
 - Plain, readable code over clever code. Keep files small: split a component that goes
   past ~150 lines, and pull logic used twice into a helper or hook.
 - Keep changes scoped to the task. If a request conflicts with these rules, say so and
   propose a version that fits.
 
-## 6. Git
+## 6. Backend tests
+
+- `npm test` runs Jest. `npm run test:coverage` must stay above 80% statements and
+  branches for `src/services/` and `src/controllers/` (enforced in `jest.config.ts`).
+- Unit tests go in `src/services/__tests__/`, Supertest HTTP tests in
+  `src/routes/__tests__/`. Both use the in-memory MongoDB from `src/test/setup.ts`,
+  which wipes every collection after each test. Never point tests at the real database.
+- Test like an adversary, not just the happy path: boundaries (back to back vs 1 ms
+  overlap), bad and impossible dates, missing/wrong-typed fields, and concurrent requests.
+- A failing test means find out which side is wrong. Fix the code if the test is right,
+  and fix the test if it asserts something the rules allow. Never loosen an assertion
+  just to make it pass.
+- Keep the `runtimeAdapters: { os }` option in `setup.ts`. MongoDB driver 7.6 can't
+  connect from inside Jest without it.
+
+## 7. Git
 
 - Never commit `.env`, `node_modules/` or `dist/`.
 - Don't commit or push unless asked. Commit messages are one short line, with no

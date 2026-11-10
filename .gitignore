@@ -16,3 +16,6 @@ npm-debug.log*
 .DS_Store
 .vscode/
 .idea/
+
+# test coverage reports
+coverage/
