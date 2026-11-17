@@ -10,7 +10,14 @@ const SUMMARY_PATH = process.env.SUMMARY_PATH || 'auto-heal-summary.md';
 const BASE_REF = process.env.BASE_REF || 'main';
 const MODEL = process.env.MODEL || 'gemini-flash-latest';
 const API_KEY = process.env.GEMINI_API_KEY;
-const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+const API_BASE =
+  process.env.GEMINI_API_BASE || 'https://generativelanguage.googleapis.com/v1beta/models/';
+
+// the free tier sometimes answers 503 "high demand", so retry a few times and then try
+// other free models before giving up
+const FALLBACK_MODELS = ['gemini-2.5-flash', 'gemini-flash-lite-latest'];
+const RETRY_WAITS_MS = [0, 10000, 30000];
+const RETRY_STATUSES = [429, 500, 502, 503, 504];
 
 // keep the request a reasonable size
 const MAX_LOG_CHARS = 12000;
@@ -137,8 +144,71 @@ function buildPrompt(log, diff, sourceFiles, testFiles) {
   ].join('\n');
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// tries each model in order, retrying on overload errors. Returns the raw body of the
+// first successful response and which model gave it.
+async function callWithRetries(prompt) {
+  const models = [MODEL];
+  for (const m of FALLBACK_MODELS) {
+    if (!models.includes(m)) {
+      models.push(m);
+    }
+  }
+
+  let lastError = '';
+  for (const model of models) {
+    for (const wait of RETRY_WAITS_MS) {
+      if (wait > 0) {
+        console.log(`auto-heal: waiting ${wait / 1000}s before retrying ${model}`);
+        await sleep(wait);
+      }
+      const response = await callModel(model, prompt);
+      const raw = await response.text();
+      if (response.ok) {
+        return { model: model, raw: raw };
+      }
+
+      lastError = `${model} returned ${response.status}: ${raw.slice(0, 500)}`;
+      console.log('auto-heal: ' + lastError);
+      if (!RETRY_STATUSES.includes(response.status)) {
+        // something like a bad key, retrying won't help
+        fail('model request failed, ' + lastError);
+      }
+    }
+  }
+  fail('all models failed, last error: ' + lastError);
+}
+
 async function askModel(prompt) {
-  const response = await fetch(API_URL, {
+  const result = await callWithRetries(prompt);
+  const raw = result.raw;
+
+  let text;
+  try {
+    const data = JSON.parse(raw);
+    text = data.candidates[0].content.parts[0].text.trim();
+  } catch (err) {
+    fail('unexpected response from the model API: ' + raw.slice(0, 1000));
+  }
+
+  // just in case the model wraps the JSON in a code fence anyway
+  if (text.startsWith('```')) {
+    text = text.replace(/^```(json)?/, '').replace(/```$/, '').trim();
+  }
+  try {
+    const answer = JSON.parse(text);
+    answer.model = result.model;
+    return answer;
+  } catch (err) {
+    fail('the model did not reply with valid JSON: ' + text.slice(0, 1000));
+  }
+}
+
+function callModel(model, prompt) {
+  return fetch(API_BASE + model + ':generateContent', {
     method: 'POST',
     headers: {
       'x-goog-api-key': API_KEY,
@@ -161,29 +231,6 @@ async function askModel(prompt) {
       },
     }),
   });
-
-  const raw = await response.text();
-  if (!response.ok) {
-    fail(`model request failed (${response.status}): ${raw.slice(0, 1000)}`);
-  }
-
-  let text;
-  try {
-    const data = JSON.parse(raw);
-    text = data.candidates[0].content.parts[0].text.trim();
-  } catch (err) {
-    fail('unexpected response from the model API: ' + raw.slice(0, 1000));
-  }
-
-  // just in case the model wraps the JSON in a code fence anyway
-  if (text.startsWith('```')) {
-    text = text.replace(/^```(json)?/, '').replace(/```$/, '').trim();
-  }
-  try {
-    return JSON.parse(text);
-  } catch (err) {
-    fail('the model did not reply with valid JSON: ' + text.slice(0, 1000));
-  }
 }
 
 function countOccurrences(text, part) {
@@ -258,7 +305,7 @@ async function main() {
       (process.env.HEAD_REF || 'this branch') +
       '`.',
     '',
-    `**Model:** ${MODEL} (Google Gemini API)`,
+    `**Model:** ${answer.model} (Google Gemini API)`,
     '',
     '**Diagnosis:** ' + answer.diagnosis,
     '',
