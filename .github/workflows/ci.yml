@@ -1,0 +1,136 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    outputs:
+      # auto-fix only cares about jest failing, not lint or npm ci
+      jest: ${{ steps.jest.outcome }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Run Jest tests
+        id: jest
+        # shell: bash turns on pipefail so the step still fails when jest fails
+        shell: bash
+        run: npm test 2>&1 | tee test-results.log
+
+      - name: Upload test log
+        if: failure() && steps.jest.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results.log
+
+  auto-fix:
+    needs: test
+    # only when the jest step failed on a PR, and never on the bot's own fix branches
+    if: >-
+      failure() &&
+      needs.test.outputs.jest == 'failure' &&
+      github.event_name == 'pull_request' &&
+      !startsWith(github.head_ref, 'fix/auto-heal-')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      models: read
+    env:
+      HEAD_REF: ${{ github.head_ref }}
+      BASE_REF: ${{ github.base_ref }}
+      FIX_BRANCH: fix/auto-heal-${{ github.run_id }}
+      TEST_LOG: ${{ runner.temp }}/logs/test-results.log
+      SUMMARY_PATH: ${{ runner.temp }}/auto-heal-summary.md
+    steps:
+      # check out the PR branch itself (not the merge commit) so the fix goes on top of it
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download test log
+        uses: actions/download-artifact@v4
+        with:
+          name: test-results
+          path: ${{ runner.temp }}/logs
+
+      - name: Ask the agent for a patch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MODEL: openai/gpt-4.1
+        run: node .github/scripts/auto-heal.mjs
+
+      - name: Show the patch
+        run: git diff
+
+      # don't open a PR for a patch that doesn't actually fix the build
+      - name: Verify the patch
+        run: |
+          npm run lint
+          npm test
+
+      - name: Commit to a fix branch and open a PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # one auto-fix PR per broken branch is enough
+          open_prs=$(gh pr list --base "$HEAD_REF" --state open --json headRefName \
+            --jq '[.[] | select(.headRefName | startswith("fix/auto-heal-"))] | length')
+          if [ "$open_prs" != "0" ]; then
+            echo "There is already an open auto-heal PR for $HEAD_REF, skipping."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$FIX_BRANCH"
+          git add src
+          git commit -m "auto-heal: fix failing tests on $HEAD_REF"
+          git push origin "$FIX_BRANCH"
+
+          body_file="$RUNNER_TEMP/pr-body.md"
+          cat "$SUMMARY_PATH" > "$body_file"
+          {
+            echo ""
+            echo "## Verification"
+            echo ""
+            echo "After applying the patch, \`npm run lint\` and \`npm test\` both passed in workflow run ${{ github.run_id }}."
+            echo ""
+            echo "## Audit log (human review)"
+            echo ""
+            echo "_To be filled in by the reviewer before accepting this patch._"
+          } >> "$body_file"
+
+          gh pr create \
+            --base "$HEAD_REF" \
+            --head "$FIX_BRANCH" \
+            --title "Auto-heal: fix failing tests on $HEAD_REF" \
+            --body-file "$body_file"
