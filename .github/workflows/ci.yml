@@ -54,7 +54,6 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-      models: read
     env:
       HEAD_REF: ${{ github.head_ref }}
       BASE_REF: ${{ github.base_ref }}
@@ -82,8 +81,8 @@ jobs:
 
       - name: Ask the agent for a patch
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          MODEL: openai/gpt-4.1
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          MODEL: gemini-flash-latest
           # runner.temp only works at step level, not in the job env above
           TEST_LOG: ${{ runner.temp }}/logs/test-results.log
           SUMMARY_PATH: ${{ runner.temp }}/auto-heal-summary.md
