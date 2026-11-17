@@ -190,7 +190,7 @@ export async function createReservation(body: unknown): Promise<Reservation> {
     const conflict = await ReservationModel.exists({
       resourceId: input.resourceId,
       status: { $in: ACTIVE_STATUSES },
-      startTime: { $lt: end },
+      startTime: { $gt: end },
       endTime: { $gt: start },
     });
     if (conflict !== null) {
