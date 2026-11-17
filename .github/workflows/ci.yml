@@ -59,8 +59,6 @@ jobs:
       HEAD_REF: ${{ github.head_ref }}
       BASE_REF: ${{ github.base_ref }}
       FIX_BRANCH: fix/auto-heal-${{ github.run_id }}
-      TEST_LOG: ${{ runner.temp }}/logs/test-results.log
-      SUMMARY_PATH: ${{ runner.temp }}/auto-heal-summary.md
     steps:
       # check out the PR branch itself (not the merge commit) so the fix goes on top of it
       - uses: actions/checkout@v5
@@ -86,6 +84,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MODEL: openai/gpt-4.1
+          # runner.temp only works at step level, not in the job env above
+          TEST_LOG: ${{ runner.temp }}/logs/test-results.log
+          SUMMARY_PATH: ${{ runner.temp }}/auto-heal-summary.md
         run: node .github/scripts/auto-heal.mjs
 
       - name: Show the patch
@@ -117,7 +118,7 @@ jobs:
           git push origin "$FIX_BRANCH"
 
           body_file="$RUNNER_TEMP/pr-body.md"
-          cat "$SUMMARY_PATH" > "$body_file"
+          cat "$RUNNER_TEMP/auto-heal-summary.md" > "$body_file"
           {
             echo ""
             echo "## Verification"
